@@ -6,6 +6,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/goccy/go-json"
 	"github.com/gofiber/contrib/websocket"
 	"github.com/gofiber/fiber/v2"
 	fiberHTML "github.com/gofiber/template/html/v2"
@@ -15,9 +16,14 @@ import (
 var NATS_CONN *nats.Conn
 
 const (
-	APP_NAME = "Streaming Coordinate with NATS.io"
+	APP_NAME         = "Streaming Coordinate with NATS.io"
 	SUBJECT_LOCATION = "location"
 )
+
+type Coordinate struct {
+	X float64 `json:"x"`
+	Y float64 `json:"y"`
+}
 
 func init() {
 	nc, err := nats.Connect("nats://127.0.0.1:4223")
@@ -34,10 +40,10 @@ func main() {
 	waits := make(chan int)
 
 	engine := fiberHTML.New("./views", ".html")
-	
+
 	app := fiber.New(fiber.Config{
 		AppName: APP_NAME,
-		Views: engine,
+		Views:   engine,
 	})
 
 	app.Get("/", HomePage)
@@ -58,7 +64,15 @@ func main() {
 	}()
 
 	NATS_CONN.Subscribe(SUBJECT_LOCATION, func(msg *nats.Msg) {
-		fmt.Println("Coordinate: ", string(msg.Data))
+		var coord Coordinate
+		if err := json.Unmarshal(msg.Data, &coord); err != nil {
+			log.Println("Failed to convert data to desired type from subject "+SUBJECT_LOCATION+" :", err)
+			return
+		}
+
+		fmt.Println("Coordinate X: ", coord.X)
+		fmt.Println("Coordinate Y: ", coord.Y)
+		fmt.Println("+======================+")
 	})
 
 	<-waits
