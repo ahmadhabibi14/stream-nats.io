@@ -2,44 +2,95 @@ package main
 
 import (
 	"fmt"
+	"log"
+	"os"
 	"time"
 
-	"github.com/nats-io/nats-server/v2/server"
+	"github.com/gofiber/contrib/websocket"
+	"github.com/gofiber/fiber/v2"
+	fiberHTML "github.com/gofiber/template/html/v2"
 	"github.com/nats-io/nats.go"
 )
 
+var NATS_CONN *nats.Conn
+
+const (
+	APP_NAME = "Streaming Coordinate with NATS.io"
+	SUBJECT_LOCATION = "location"
+)
+
+func init() {
+	nc, err := nats.Connect("nats://127.0.0.1:4223")
+	if err != nil {
+		log.Fatalf("Error connecting to NATS: %v", err)
+	}
+
+	NATS_CONN = nc
+
+	log.Println("Connected to NATS!")
+}
+
 func main() {
-	opts := &server.Options{
+	waits := make(chan int)
 
-	}
-
-	ns, err := server.NewServer(opts)
-	if err != nil {
-		panic(err)
-	}
-
-	go ns.Start()
-
-	if !ns.ReadyForConnections(4 * time.Second) {
-		panic("not ready for connection")
-	}
-
-	// connect to the server
-	nc, err := nats.Connect(ns.ClientURL())
-	if err != nil {
-		panic(err)
-	}
-
-	subject := `my-subject`
-
-	nc.Subscribe(subject, func(msg *nats.Msg) {
-		data := string(msg.Data)
-		fmt.Println(data)
-
-		ns.Shutdown()
+	engine := fiberHTML.New("./views", ".html")
+	
+	app := fiber.New(fiber.Config{
+		AppName: APP_NAME,
+		Views: engine,
 	})
 
-	nc.Publish(subject, []byte("Hello embedded NATS !"))
+	app.Get("/", HomePage)
+	app.Get("/coord", Websocket, websocket.New(TrackCoordinate, websocket.Config{
+		HandshakeTimeout: 100 * time.Second,
+		ReadBufferSize:   1824,
+		WriteBufferSize:  256,
+	}))
 
-	ns.WaitForShutdown()
+	go Shutdown()
+
+	go func() {
+		if err := app.Listen(":3000"); err != nil {
+			log.Println("failed to start http server")
+			CloseServices()
+			os.Exit(1)
+		}
+	}()
+
+	NATS_CONN.Subscribe(SUBJECT_LOCATION, func(msg *nats.Msg) {
+		fmt.Println("Coordinate: ", string(msg.Data))
+	})
+
+	<-waits
+}
+
+func HomePage(c *fiber.Ctx) error {
+	c.Set(fiber.HeaderContentType, fiber.MIMETextHTMLCharsetUTF8)
+	return c.Render("index", fiber.Map{
+		"Title": APP_NAME,
+	})
+}
+
+func Websocket(c *fiber.Ctx) error {
+	if websocket.IsWebSocketUpgrade(c) {
+		return c.Next()
+	}
+	return fiber.ErrUpgradeRequired
+}
+
+func TrackCoordinate(conn *websocket.Conn) {
+	var (
+		msg []byte
+		err error
+	)
+	for {
+		if _, msg, err = conn.ReadMessage(); err != nil {
+			log.Println("Read :", err)
+			break
+		}
+
+		if err := NATS_CONN.Publish(SUBJECT_LOCATION, msg); err != nil {
+			log.Println("Error when publishing coordinate:", err)
+		}
+	}
 }

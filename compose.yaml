@@ -1,0 +1,14 @@
+version: "3.9"
+
+services:
+  nats-location:
+    image: nats
+    ports:
+      - "4223:4222" # client port
+      - "6222:6222" # cluster port
+      - "8222:8222" # monitoring port
+    networks:
+      - nats
+
+networks:
+  nats:
