@@ -106,6 +106,7 @@ func ChatReceive(c *fiber.Ctx) error {
 	c.Set("Cache-Control", "no-cache")
 	c.Set("Connection", "keep-alive")
 	c.Set("Transfer-Encoding", "chunked")
+
 	c.Context().SetBodyStreamWriter(fasthttp.StreamWriter(func(w *bufio.Writer) {
 		NATS_CONN.Subscribe(SUBJECT_CHAT, func(msgNats *nats.Msg) {
 			log.Println("message:", string(msgNats.Data))

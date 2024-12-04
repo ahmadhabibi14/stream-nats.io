@@ -8,6 +8,9 @@ import (
 )
 
 func CloseServices() {
+	if err := NATS_CONN.Drain(); err != nil {
+		log.Fatal("Error during drain:", err)
+	}
 	NATS_CONN.Close()
 }
 
